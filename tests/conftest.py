@@ -5,11 +5,16 @@ by shelling out to docker build / docker run to verify the image builds
 correctly and that the shopsystem packages are available inside the
 container.
 
-Scenarios 2 and 3 require the shopsystem compose network (attachable: true)
-and the postgres service to be reachable.  The "compose network is running"
-step starts docker compose if the network is not already present.
+Scenarios 2 and 3 of the base_image feature require the shopsystem compose
+network (attachable: true) and the postgres service to be reachable.  The
+"compose network is running" step starts docker compose if the network is not
+already present.
+
+The devcontainer_dockerfile scenarios exercise the new Dockerfile that
+installs shop-msg, shop-templates, shop-test-harness, and bd.
 """
 import os
+import re
 import subprocess
 import time
 import uuid
@@ -439,4 +444,350 @@ def pending_outbox_reports_work_id(context: dict) -> None:
     assert work_id in result.stdout, (
         f"Expected work_id {work_id!r} to appear in pending outbox output.\n"
         f"STDOUT: {result.stdout}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# devcontainer_dockerfile scenarios — session-scoped image build
+# (image tag: shopsystem-devcontainer:test)
+# ---------------------------------------------------------------------------
+
+_DEVCONTAINER_IMAGE_TAG = "shopsystem-devcontainer:test"
+
+
+@pytest.fixture(scope="session")
+def devcontainer_image_tag() -> str:
+    """Build (or reuse) the shopsystem-devcontainer:test image once per session.
+
+    Returns the image tag string.
+    """
+    result = subprocess.run(
+        [
+            "docker", "build",
+            "-t", _DEVCONTAINER_IMAGE_TAG,
+            "-f", str(DOCKERFILE),
+            str(DOCKERFILE.parent),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"docker build of shopsystem-devcontainer:test failed "
+            f"(exit {result.returncode}).\n"
+            f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+        )
+    return _DEVCONTAINER_IMAGE_TAG
+
+
+# ---------------------------------------------------------------------------
+# Scenario: src/Dockerfile exists in the shopsystem-devcontainer BC repo
+# ---------------------------------------------------------------------------
+
+@given("the shopsystem-devcontainer BC repository")
+def bc_repository(context: dict) -> None:
+    """Record the BC root path in the context."""
+    context["bc_root"] = BC_ROOT
+
+
+@when("the repository file tree is inspected")
+def inspect_file_tree(context: dict) -> None:
+    """Record the set of files relative to BC root for assertion steps."""
+    context["bc_root_inspected"] = context["bc_root"]
+
+
+@then("a file named src/Dockerfile exists at the repository root")
+def src_dockerfile_exists(context: dict) -> None:
+    dockerfile_path = context["bc_root_inspected"] / "src" / "Dockerfile"
+    assert dockerfile_path.exists(), (
+        f"Expected {dockerfile_path} to exist, but it does not."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Scenario: Building src/Dockerfile produces an image with exit code zero
+# ---------------------------------------------------------------------------
+
+@given("src/Dockerfile extends python:3.12-slim as its base image")
+def dockerfile_extends_python312(context: dict) -> None:
+    """Assert the FROM line in src/Dockerfile references python:3.12-slim."""
+    dockerfile_path = context["bc_root"] / "src" / "Dockerfile"
+    content = dockerfile_path.read_text()
+    assert "FROM python:3.12-slim" in content, (
+        f"src/Dockerfile does not contain 'FROM python:3.12-slim'.\n"
+        f"Dockerfile content:\n{content}"
+    )
+
+
+@when("docker build is run against src/Dockerfile with no additional arguments")
+def docker_build_devcontainer(devcontainer_image_tag: str, context: dict) -> None:
+    """Build the devcontainer image and record the outcome."""
+    result = subprocess.run(
+        [
+            "docker", "build",
+            "-t", devcontainer_image_tag,
+            "-f", str(DOCKERFILE),
+            str(DOCKERFILE.parent),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    context["build_returncode"] = result.returncode
+    context["build_stdout"] = result.stdout
+    context["build_stderr"] = result.stderr
+    context["built_image_tag"] = devcontainer_image_tag
+
+
+@then("a local Docker image tagged shopsystem-devcontainer:test is produced")
+def image_tagged_devcontainer_test_exists(context: dict) -> None:
+    tag = _DEVCONTAINER_IMAGE_TAG
+    result = subprocess.run(
+        ["docker", "image", "inspect", tag],
+        capture_output=True,
+    )
+    assert result.returncode == 0, (
+        f"Docker image {tag!r} does not exist after build."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Shared Given: an image built from src/Dockerfile in the BC repo
+# ---------------------------------------------------------------------------
+
+@given("an image built from src/Dockerfile in the shopsystem-devcontainer BC repo")
+def image_built_from_src_dockerfile(devcontainer_image_tag: str, context: dict) -> None:
+    """Ensure the devcontainer image is built and record the tag in context."""
+    context["devcontainer_image_tag"] = devcontainer_image_tag
+
+
+# ---------------------------------------------------------------------------
+# Scenario: bd binary is installed via Dockerfile
+# ---------------------------------------------------------------------------
+
+@given(
+    "the Dockerfile downloads the bd binary from github.com/steveyegge/beads "
+    "releases and installs it to /usr/local/bin/bd"
+)
+def dockerfile_installs_bd_from_steveyegge(context: dict) -> None:
+    """Assert that src/Dockerfile references steveyegge/beads releases."""
+    dockerfile_path = context.get("bc_root", BC_ROOT) / "src" / "Dockerfile"
+    content = dockerfile_path.read_text()
+    assert "steveyegge/beads" in content, (
+        f"src/Dockerfile does not reference 'steveyegge/beads'.\n"
+        f"Dockerfile content:\n{content}"
+    )
+    assert "/usr/local/bin/bd" in content, (
+        f"src/Dockerfile does not install bd to /usr/local/bin/bd.\n"
+        f"Dockerfile content:\n{content}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# When steps for docker run --rm <image> <command> scenarios
+# ---------------------------------------------------------------------------
+
+@when("docker run --rm shopsystem-devcontainer:test which shop-msg is executed on the host")
+def docker_run_which_shop_msg(context: dict) -> None:
+    image = context.get("devcontainer_image_tag", _DEVCONTAINER_IMAGE_TAG)
+    result = subprocess.run(
+        ["docker", "run", "--rm", image, "which", "shop-msg"],
+        capture_output=True,
+        text=True,
+    )
+    context["cmd_returncode"] = result.returncode
+    context["cmd_stdout"] = result.stdout
+    context["cmd_stderr"] = result.stderr
+
+
+@when("docker run --rm shopsystem-devcontainer:test which shop-templates is executed on the host")
+def docker_run_which_shop_templates(context: dict) -> None:
+    image = context.get("devcontainer_image_tag", _DEVCONTAINER_IMAGE_TAG)
+    result = subprocess.run(
+        ["docker", "run", "--rm", image, "which", "shop-templates"],
+        capture_output=True,
+        text=True,
+    )
+    context["cmd_returncode"] = result.returncode
+    context["cmd_stdout"] = result.stdout
+    context["cmd_stderr"] = result.stderr
+
+
+@when("docker run --rm shopsystem-devcontainer:test which shop-test-harness is executed on the host")
+def docker_run_which_shop_test_harness(context: dict) -> None:
+    image = context.get("devcontainer_image_tag", _DEVCONTAINER_IMAGE_TAG)
+    result = subprocess.run(
+        ["docker", "run", "--rm", image, "which", "shop-test-harness"],
+        capture_output=True,
+        text=True,
+    )
+    context["cmd_returncode"] = result.returncode
+    context["cmd_stdout"] = result.stdout
+    context["cmd_stderr"] = result.stderr
+
+
+@when("docker run --rm shopsystem-devcontainer:test which bd is executed on the host")
+def docker_run_which_bd(context: dict) -> None:
+    image = context.get("devcontainer_image_tag", _DEVCONTAINER_IMAGE_TAG)
+    result = subprocess.run(
+        ["docker", "run", "--rm", image, "which", "bd"],
+        capture_output=True,
+        text=True,
+    )
+    context["cmd_returncode"] = result.returncode
+    context["cmd_stdout"] = result.stdout
+    context["cmd_stderr"] = result.stderr
+
+
+@when("docker run --rm shopsystem-devcontainer:test shop-msg --help is executed on the host")
+def docker_run_shop_msg_help(context: dict) -> None:
+    image = context.get("devcontainer_image_tag", _DEVCONTAINER_IMAGE_TAG)
+    result = subprocess.run(
+        ["docker", "run", "--rm", image, "shop-msg", "--help"],
+        capture_output=True,
+        text=True,
+    )
+    context["cmd_returncode"] = result.returncode
+    context["cmd_stdout"] = result.stdout
+    context["cmd_stderr"] = result.stderr
+
+
+@when("docker run --rm shopsystem-devcontainer:test shop-templates --help is executed on the host")
+def docker_run_shop_templates_help(context: dict) -> None:
+    image = context.get("devcontainer_image_tag", _DEVCONTAINER_IMAGE_TAG)
+    result = subprocess.run(
+        ["docker", "run", "--rm", image, "shop-templates", "--help"],
+        capture_output=True,
+        text=True,
+    )
+    context["cmd_returncode"] = result.returncode
+    context["cmd_stdout"] = result.stdout
+    context["cmd_stderr"] = result.stderr
+
+
+@when("docker run --rm shopsystem-devcontainer:test shop-test-harness --help is executed on the host")
+def docker_run_shop_test_harness_help(context: dict) -> None:
+    image = context.get("devcontainer_image_tag", _DEVCONTAINER_IMAGE_TAG)
+    result = subprocess.run(
+        ["docker", "run", "--rm", image, "shop-test-harness", "--help"],
+        capture_output=True,
+        text=True,
+    )
+    context["cmd_returncode"] = result.returncode
+    context["cmd_stdout"] = result.stdout
+    context["cmd_stderr"] = result.stderr
+
+
+@when("docker run --rm shopsystem-devcontainer:test bd --version is executed on the host")
+def docker_run_bd_version(context: dict) -> None:
+    image = context.get("devcontainer_image_tag", _DEVCONTAINER_IMAGE_TAG)
+    result = subprocess.run(
+        ["docker", "run", "--rm", image, "bd", "--version"],
+        capture_output=True,
+        text=True,
+    )
+    context["cmd_returncode"] = result.returncode
+    context["cmd_stdout"] = result.stdout
+    context["cmd_stderr"] = result.stderr
+
+
+# ---------------------------------------------------------------------------
+# Then steps shared by the devcontainer_dockerfile scenarios
+# ---------------------------------------------------------------------------
+
+@then("the command exits zero")
+def cmd_exits_zero(context: dict) -> None:
+    rc = context["cmd_returncode"]
+    assert rc == 0, (
+        f"Command exited {rc}.\n"
+        f"STDOUT: {context.get('cmd_stdout', '')}\n"
+        f"STDERR: {context.get('cmd_stderr', '')}"
+    )
+
+
+@then("stdout contains a path to the shop-msg executable")
+def stdout_contains_shop_msg_path(context: dict) -> None:
+    stdout = context.get("cmd_stdout", "")
+    assert "shop-msg" in stdout, (
+        f"Expected stdout to contain a path to shop-msg; got: {stdout!r}"
+    )
+
+
+@then("stdout contains a path to the shop-templates executable")
+def stdout_contains_shop_templates_path(context: dict) -> None:
+    stdout = context.get("cmd_stdout", "")
+    assert "shop-templates" in stdout, (
+        f"Expected stdout to contain a path to shop-templates; got: {stdout!r}"
+    )
+
+
+@then("stdout contains a path to the shop-test-harness executable")
+def stdout_contains_shop_test_harness_path(context: dict) -> None:
+    stdout = context.get("cmd_stdout", "")
+    assert "shop-test-harness" in stdout, (
+        f"Expected stdout to contain a path to shop-test-harness; got: {stdout!r}"
+    )
+
+
+@then("stdout contains /usr/local/bin/bd")
+def stdout_contains_bd_path(context: dict) -> None:
+    stdout = context.get("cmd_stdout", "")
+    assert "/usr/local/bin/bd" in stdout, (
+        f"Expected stdout to contain '/usr/local/bin/bd'; got: {stdout!r}"
+    )
+
+
+@then('stdout contains "bd version"')
+def stdout_contains_bd_version(context: dict) -> None:
+    stdout = context.get("cmd_stdout", "")
+    assert "bd version" in stdout, (
+        f"Expected stdout to contain 'bd version'; got: {stdout!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Scenario: Dockerfile installs packages via pip from GitHub
+# ---------------------------------------------------------------------------
+
+@when("the src/Dockerfile content is read")
+def read_dockerfile_content(context: dict) -> None:
+    dockerfile_path = context.get("bc_root", BC_ROOT) / "src" / "Dockerfile"
+    context["dockerfile_content"] = dockerfile_path.read_text()
+
+
+@then(
+    "src/Dockerfile contains a RUN pip install step that installs "
+    "shopsystem-messaging from git+https://github.com/dstengle/shopsystem-messaging"
+)
+def dockerfile_installs_shopsystem_messaging(context: dict) -> None:
+    content = context["dockerfile_content"]
+    assert "shopsystem-messaging" in content and "dstengle/shopsystem-messaging" in content, (
+        f"src/Dockerfile does not install shopsystem-messaging from "
+        f"git+https://github.com/dstengle/shopsystem-messaging.\n"
+        f"Dockerfile content:\n{content}"
+    )
+
+
+@then(
+    "src/Dockerfile contains a RUN pip install step that installs "
+    "shop-templates from git+https://github.com/dstengle/shopsystem-templates"
+)
+def dockerfile_installs_shop_templates(context: dict) -> None:
+    content = context["dockerfile_content"]
+    assert "shop-templates" in content and "dstengle/shopsystem-templates" in content, (
+        f"src/Dockerfile does not install shop-templates from "
+        f"git+https://github.com/dstengle/shopsystem-templates.\n"
+        f"Dockerfile content:\n{content}"
+    )
+
+
+@then(
+    "src/Dockerfile contains a RUN pip install step that installs "
+    "shopsystem-test-harness from git+https://github.com/dstengle/shopsystem-test-harness"
+)
+def dockerfile_installs_shopsystem_test_harness(context: dict) -> None:
+    content = context["dockerfile_content"]
+    assert "shopsystem-test-harness" in content and "dstengle/shopsystem-test-harness" in content, (
+        f"src/Dockerfile does not install shopsystem-test-harness from "
+        f"git+https://github.com/dstengle/shopsystem-test-harness.\n"
+        f"Dockerfile content:\n{content}"
     )
