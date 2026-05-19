@@ -12,6 +12,9 @@ already present.
 
 The devcontainer_dockerfile scenarios exercise the new Dockerfile that
 installs shop-msg, shop-templates, shop-test-harness, and bd.
+
+The ci_workflow scenarios exercise the GitHub Actions workflow file at
+.github/workflows/publish-devcontainer.yml.
 """
 import os
 import re
@@ -21,6 +24,7 @@ import uuid
 from pathlib import Path
 
 import pytest
+import yaml
 from pytest_bdd import given, then, when
 
 # ---------------------------------------------------------------------------
@@ -28,7 +32,7 @@ from pytest_bdd import given, then, when
 # ---------------------------------------------------------------------------
 BC_ROOT = Path(__file__).parent.parent
 COMPOSE_FILE = BC_ROOT / "docker-compose.yml"
-DOCKERFILE = BC_ROOT / "src" / "Dockerfile"
+DOCKERFILE = BC_ROOT / ".devcontainer" / "Dockerfile"
 
 # The network name that docker compose creates for our shopsystem network.
 # docker compose prefixes the project name to the service network name.
@@ -496,9 +500,9 @@ def inspect_file_tree(context: dict) -> None:
     context["bc_root_inspected"] = context["bc_root"]
 
 
-@then("a file named src/Dockerfile exists at the repository root")
-def src_dockerfile_exists(context: dict) -> None:
-    dockerfile_path = context["bc_root_inspected"] / "src" / "Dockerfile"
+@then("a file named .devcontainer/Dockerfile exists at the repository root")
+def devcontainer_dockerfile_exists(context: dict) -> None:
+    dockerfile_path = context["bc_root_inspected"] / ".devcontainer" / "Dockerfile"
     assert dockerfile_path.exists(), (
         f"Expected {dockerfile_path} to exist, but it does not."
     )
@@ -508,18 +512,18 @@ def src_dockerfile_exists(context: dict) -> None:
 # Scenario: Building src/Dockerfile produces an image with exit code zero
 # ---------------------------------------------------------------------------
 
-@given("src/Dockerfile extends python:3.12-slim as its base image")
-def dockerfile_extends_python312(context: dict) -> None:
-    """Assert the FROM line in src/Dockerfile references python:3.12-slim."""
-    dockerfile_path = context["bc_root"] / "src" / "Dockerfile"
+@given(".devcontainer/Dockerfile extends mcr.microsoft.com/devcontainers/python:3-3.14-trixie as its base image")
+def dockerfile_extends_devcontainers_python(context: dict) -> None:
+    """Assert the FROM line in .devcontainer/Dockerfile references the new base image."""
+    dockerfile_path = context["bc_root"] / ".devcontainer" / "Dockerfile"
     content = dockerfile_path.read_text()
-    assert "FROM python:3.12-slim" in content, (
-        f"src/Dockerfile does not contain 'FROM python:3.12-slim'.\n"
+    assert "FROM mcr.microsoft.com/devcontainers/python:3-3.14-trixie" in content, (
+        f".devcontainer/Dockerfile does not contain the expected FROM line.\n"
         f"Dockerfile content:\n{content}"
     )
 
 
-@when("docker build is run against src/Dockerfile with no additional arguments")
+@when("docker build is run against .devcontainer/Dockerfile with no additional arguments")
 def docker_build_devcontainer(devcontainer_image_tag: str, context: dict) -> None:
     """Build the devcontainer image and record the outcome."""
     result = subprocess.run(
@@ -554,8 +558,8 @@ def image_tagged_devcontainer_test_exists(context: dict) -> None:
 # Shared Given: an image built from src/Dockerfile in the BC repo
 # ---------------------------------------------------------------------------
 
-@given("an image built from src/Dockerfile in the shopsystem-devcontainer BC repo")
-def image_built_from_src_dockerfile(devcontainer_image_tag: str, context: dict) -> None:
+@given("an image built from .devcontainer/Dockerfile in the shopsystem-devcontainer BC repo")
+def image_built_from_devcontainer_dockerfile(devcontainer_image_tag: str, context: dict) -> None:
     """Ensure the devcontainer image is built and record the tag in context."""
     context["devcontainer_image_tag"] = devcontainer_image_tag
 
@@ -569,8 +573,8 @@ def image_built_from_src_dockerfile(devcontainer_image_tag: str, context: dict) 
     "releases and installs it to /usr/local/bin/bd"
 )
 def dockerfile_installs_bd_from_steveyegge(context: dict) -> None:
-    """Assert that src/Dockerfile references steveyegge/beads releases."""
-    dockerfile_path = context.get("bc_root", BC_ROOT) / "src" / "Dockerfile"
+    """Assert that .devcontainer/Dockerfile references steveyegge/beads releases."""
+    dockerfile_path = context.get("bc_root", BC_ROOT) / ".devcontainer" / "Dockerfile"
     content = dockerfile_path.read_text()
     assert "steveyegge/beads" in content, (
         f"src/Dockerfile does not reference 'steveyegge/beads'.\n"
@@ -748,46 +752,284 @@ def stdout_contains_bd_version(context: dict) -> None:
 # Scenario: Dockerfile installs packages via pip from GitHub
 # ---------------------------------------------------------------------------
 
-@when("the src/Dockerfile content is read")
+@when("the .devcontainer/Dockerfile content is read")
 def read_dockerfile_content(context: dict) -> None:
-    dockerfile_path = context.get("bc_root", BC_ROOT) / "src" / "Dockerfile"
+    dockerfile_path = context.get("bc_root", BC_ROOT) / ".devcontainer" / "Dockerfile"
     context["dockerfile_content"] = dockerfile_path.read_text()
 
 
 @then(
-    "src/Dockerfile contains a RUN pip install step that installs "
+    ".devcontainer/Dockerfile contains a RUN pip install step that installs "
     "shopsystem-messaging from git+https://github.com/dstengle/shopsystem-messaging"
 )
 def dockerfile_installs_shopsystem_messaging(context: dict) -> None:
     content = context["dockerfile_content"]
     assert "shopsystem-messaging" in content and "dstengle/shopsystem-messaging" in content, (
-        f"src/Dockerfile does not install shopsystem-messaging from "
+        f".devcontainer/Dockerfile does not install shopsystem-messaging from "
         f"git+https://github.com/dstengle/shopsystem-messaging.\n"
         f"Dockerfile content:\n{content}"
     )
 
 
 @then(
-    "src/Dockerfile contains a RUN pip install step that installs "
+    ".devcontainer/Dockerfile contains a RUN pip install step that installs "
     "shop-templates from git+https://github.com/dstengle/shopsystem-templates"
 )
 def dockerfile_installs_shop_templates(context: dict) -> None:
     content = context["dockerfile_content"]
     assert "shop-templates" in content and "dstengle/shopsystem-templates" in content, (
-        f"src/Dockerfile does not install shop-templates from "
+        f".devcontainer/Dockerfile does not install shop-templates from "
         f"git+https://github.com/dstengle/shopsystem-templates.\n"
         f"Dockerfile content:\n{content}"
     )
 
 
 @then(
-    "src/Dockerfile contains a RUN pip install step that installs "
+    ".devcontainer/Dockerfile contains a RUN pip install step that installs "
     "shopsystem-test-harness from git+https://github.com/dstengle/shopsystem-test-harness"
 )
 def dockerfile_installs_shopsystem_test_harness(context: dict) -> None:
     content = context["dockerfile_content"]
     assert "shopsystem-test-harness" in content and "dstengle/shopsystem-test-harness" in content, (
-        f"src/Dockerfile does not install shopsystem-test-harness from "
+        f".devcontainer/Dockerfile does not install shopsystem-test-harness from "
         f"git+https://github.com/dstengle/shopsystem-test-harness.\n"
         f"Dockerfile content:\n{content}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# ci_workflow scenarios — GitHub Actions workflow file assertions
+# ---------------------------------------------------------------------------
+
+_WORKFLOW_PATH = BC_ROOT / ".github" / "workflows" / "publish-devcontainer.yml"
+
+
+@then("a file named .github/workflows/publish-devcontainer.yml exists at the repository root")
+def workflow_file_exists(context: dict) -> None:
+    assert _WORKFLOW_PATH.exists(), (
+        f"Expected {_WORKFLOW_PATH} to exist, but it does not."
+    )
+
+
+@when("the content of .github/workflows/publish-devcontainer.yml is read")
+def read_workflow_content(context: dict) -> None:
+    assert _WORKFLOW_PATH.exists(), (
+        f"Workflow file {_WORKFLOW_PATH} does not exist."
+    )
+    raw = _WORKFLOW_PATH.read_text()
+    context["workflow_raw"] = raw
+    context["workflow_parsed"] = yaml.safe_load(raw)
+
+
+def _get_workflow_on(wf: dict) -> dict:
+    """Return the 'on' block from the parsed workflow.
+
+    PyYAML parses the bare word 'on' as the boolean True, so we look for
+    both the string key "on" and the boolean key True.
+    """
+    return wf.get("on") or wf.get(True) or {}
+
+
+@then("the workflow on.push.branches list contains main")
+def workflow_push_branches_contains_main(context: dict) -> None:
+    wf = context["workflow_parsed"]
+    on_block = _get_workflow_on(wf)
+    branches = on_block.get("push", {}).get("branches", [])
+    assert "main" in branches, (
+        f"Expected 'main' in on.push.branches; got: {branches!r}"
+    )
+
+
+@then("the workflow on.push.paths list contains .devcontainer/Dockerfile")
+def workflow_push_paths_contains_dockerfile(context: dict) -> None:
+    wf = context["workflow_parsed"]
+    on_block = _get_workflow_on(wf)
+    paths = on_block.get("push", {}).get("paths", [])
+    assert ".devcontainer/Dockerfile" in paths, (
+        f"Expected '.devcontainer/Dockerfile' in on.push.paths; got: {paths!r}"
+    )
+
+
+@then("the workflow top-level permissions block sets packages to write")
+def workflow_permissions_packages_write(context: dict) -> None:
+    wf = context["workflow_parsed"]
+    permissions = wf.get("permissions", {})
+    assert permissions.get("packages") == "write", (
+        f"Expected permissions.packages == 'write'; got: {permissions!r}"
+    )
+
+
+@then("the workflow top-level permissions block sets contents to read")
+def workflow_permissions_contents_read(context: dict) -> None:
+    wf = context["workflow_parsed"]
+    permissions = wf.get("permissions", {})
+    assert permissions.get("contents") == "read", (
+        f"Expected permissions.contents == 'read'; got: {permissions!r}"
+    )
+
+
+def _get_all_steps(workflow_parsed: dict) -> list:
+    """Return a flat list of all step dicts from all jobs in the workflow."""
+    steps = []
+    for job in workflow_parsed.get("jobs", {}).values():
+        steps.extend(job.get("steps", []))
+    return steps
+
+
+@then("a workflow step exists whose configuration sets file or context to .devcontainer/Dockerfile")
+def workflow_step_references_dockerfile(context: dict) -> None:
+    wf = context["workflow_parsed"]
+    raw = context["workflow_raw"]
+    steps = _get_all_steps(wf)
+    # Check for the dockerfile reference in any step's 'with' block or 'run' text,
+    # or in the raw YAML text (handles multi-line run scripts and action 'with' blocks).
+    found = False
+    for step in steps:
+        with_block = step.get("with", {}) or {}
+        for key, val in with_block.items():
+            if val and ".devcontainer/Dockerfile" in str(val):
+                found = True
+                break
+        if found:
+            break
+        run_val = step.get("run", "")
+        if run_val and ".devcontainer/Dockerfile" in run_val:
+            found = True
+            break
+    # Fallback: search raw text for the path adjacent to file/context keywords
+    if not found:
+        found = ".devcontainer/Dockerfile" in raw
+    assert found, (
+        "No workflow step found whose configuration references .devcontainer/Dockerfile.\n"
+        f"Steps: {steps}"
+    )
+    context["_build_steps"] = [
+        s for s in steps
+        if ".devcontainer/Dockerfile" in str(s.get("with", {}))
+        or ".devcontainer/Dockerfile" in str(s.get("run", ""))
+    ]
+
+
+@then("that step uses an action or run command that performs a docker build")
+def workflow_step_performs_docker_build(context: dict) -> None:
+    wf = context["workflow_parsed"]
+    steps = _get_all_steps(wf)
+    # Look for a step that uses docker/build-push-action or has 'docker build' in 'run'
+    found = False
+    for step in steps:
+        uses = step.get("uses", "")
+        run = step.get("run", "")
+        if "docker/build-push-action" in uses or "docker build" in run:
+            found = True
+            break
+    assert found, (
+        "No workflow step found that performs a docker build "
+        "(expected docker/build-push-action or 'docker build' in a run step).\n"
+        f"Steps: {steps}"
+    )
+
+
+@then("a workflow step exists whose configuration targets the registry ghcr.io")
+def workflow_step_targets_ghcr(context: dict) -> None:
+    wf = context["workflow_parsed"]
+    raw = context["workflow_raw"]
+    steps = _get_all_steps(wf)
+    found = False
+    for step in steps:
+        with_block = step.get("with", {}) or {}
+        for key, val in with_block.items():
+            if val and "ghcr.io" in str(val):
+                found = True
+                break
+        if found:
+            break
+        run_val = step.get("run", "")
+        if run_val and "ghcr.io" in run_val:
+            found = True
+            break
+    if not found:
+        found = "ghcr.io" in raw
+    assert found, (
+        "No workflow step found whose configuration references ghcr.io.\n"
+        f"Steps: {steps}"
+    )
+
+
+@then("that step references the image name ghcr.io/dstengle/shopsystem-devcontainer")
+def workflow_step_references_image_name(context: dict) -> None:
+    raw = context["workflow_raw"]
+    image_name = "ghcr.io/dstengle/shopsystem-devcontainer"
+    assert image_name in raw, (
+        f"Expected workflow to reference image name {image_name!r}.\n"
+        f"Workflow content:\n{raw}"
+    )
+
+
+@then(
+    "that step uses an action or run command that performs a docker push "
+    "or equivalent registry push"
+)
+def workflow_step_performs_docker_push(context: dict) -> None:
+    wf = context["workflow_parsed"]
+    steps = _get_all_steps(wf)
+    # docker/build-push-action with push: true performs both build and push.
+    # A 'docker push' run command also qualifies.
+    found = False
+    for step in steps:
+        uses = step.get("uses", "")
+        run = step.get("run", "")
+        with_block = step.get("with", {}) or {}
+        if "docker/build-push-action" in uses and with_block.get("push") is True:
+            found = True
+            break
+        if "docker push" in run:
+            found = True
+            break
+    assert found, (
+        "No workflow step found that performs a docker push "
+        "(expected docker/build-push-action with push:true, or 'docker push' in run).\n"
+        f"Steps: {steps}"
+    )
+
+
+@then(
+    "the tags configuration for the build-push step includes "
+    "ghcr.io/dstengle/shopsystem-devcontainer:latest"
+)
+def workflow_tags_include_latest(context: dict) -> None:
+    wf = context["workflow_parsed"]
+    raw = context["workflow_raw"]
+    image = "ghcr.io/dstengle/shopsystem-devcontainer"
+    # The tags field may be a multiline string or a list in the parsed YAML.
+    steps = _get_all_steps(wf)
+    found = False
+    for step in steps:
+        with_block = step.get("with", {}) or {}
+        tags_val = with_block.get("tags", "")
+        if tags_val and f"{image}:latest" in str(tags_val):
+            found = True
+            break
+    if not found:
+        found = f"{image}:latest" in raw
+    assert found, (
+        f"Expected tags configuration to include '{image}:latest'.\n"
+        f"Workflow content:\n{raw}"
+    )
+
+
+@then(
+    "the tags configuration includes a git SHA-derived tag of the form "
+    "ghcr.io/dstengle/shopsystem-devcontainer:sha-<short-sha>"
+)
+def workflow_tags_include_sha_tag(context: dict) -> None:
+    raw = context["workflow_raw"]
+    image = "ghcr.io/dstengle/shopsystem-devcontainer"
+    # Accept any expression that produces a sha- prefixed tag:
+    # e.g. sha-${{ github.sha }}, sha-$(git rev-parse --short HEAD), sha-${GITHUB_SHA::7}, etc.
+    # We look for the image prefix followed by :sha- and some non-empty expression.
+    pattern = re.escape(image) + r":sha-"
+    assert re.search(pattern, raw), (
+        f"Expected tags configuration to include a sha- prefixed tag pattern "
+        f"matching '{image}:sha-...'.\n"
+        f"Workflow content:\n{raw}"
     )

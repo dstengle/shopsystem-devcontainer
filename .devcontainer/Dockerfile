@@ -1,16 +1,21 @@
-# shopsystem-devcontainer base image
-# Provides a Python 3.12 environment with the shopsystem CLI tools
-# (shop-msg, shop-templates, shop-test-harness, bd) pre-installed and on PATH.
-FROM python:3.12-slim
-
-# System dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
-    curl \
-    libpq-dev \
-    gcc \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+FROM mcr.microsoft.com/devcontainers/python:3-3.14-trixie
+# Install
+RUN apt-get update && apt-get install -y git vim curl tmux wget golang inotify-tools
+RUN pip install uv
+#
+# Specstory for capturing agent chat logs
+#
+RUN ARCH=$(uname -m) && \
+    if [ "$ARCH" = "aarch64" ]; then SPEC_ARCH="Linux_arm64"; else SPEC_ARCH="Linux_x86_64"; fi && \
+    cd /tmp && \
+    curl -LO "https://github.com/specstoryai/getspecstory/releases/latest/download/SpecStoryCLI_${SPEC_ARCH}.tar.gz" && \
+    tar -xzf "SpecStoryCLI_${SPEC_ARCH}.tar.gz" && \
+    mv specstory /usr/local/bin/ && chmod +x /usr/local/bin/specstory && \
+    rm "SpecStoryCLI_${SPEC_ARCH}.tar.gz"
+#
+# Claude code
+#
+RUN curl -fsSL https://claude.ai/install.sh | sudo -u vscode bash
 
 # Install shopsystem-messaging from the published GitHub release.
 # This makes shop_msg importable and puts shop-msg on PATH.

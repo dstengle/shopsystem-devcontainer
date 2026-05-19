@@ -9,3 +9,4 @@ _FEATURES = Path(__file__).parent.parent / "features"
 # Load all scenarios from the features directory.
 scenarios(str(_FEATURES / "base_image.feature"))
 scenarios(str(_FEATURES / "devcontainer_dockerfile.feature"))
+scenarios(str(_FEATURES / "ci_workflow.feature"))
