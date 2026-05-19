@@ -31,15 +31,17 @@ independently of the canonical source.
 
 ## BC inbox / outbox protocol
 
-- **Inbox** (`inbox/`) holds messages from the lead shop. Filename
-  convention: `<work_id>.yaml`. One file per dispatch.
-- **Outbox** (`outbox/`) holds this BC's responses. Filename convention:
-  `<work_id>-<response_type>.yaml`. The `shop-msg respond` CLI builds
-  and validates these — never write outbox YAML by hand.
-- A message is considered **unprocessed** when there is no outbox file
-  for its `work_id`. Use `shop-msg pending inbox` to identify
-  unprocessed work, and `shop-msg read inbox` to read a specific
+Inbox and outbox state are stored in postgres; there are no inbox or outbox
+YAML files on the filesystem. All messaging operations go through the
+`shop-msg` CLI:
+
+- `shop-msg pending inbox --bc-root .` — list unprocessed messages (those
+  the lead has sent that this BC has not yet responded to).
+- `shop-msg read inbox --bc-root . --work-id <id>` — read a specific
   inbox message.
+- `shop-msg respond ...` — write an outbox response (clarify, work_done,
+  mechanism_observation). The CLI builds and validates the message; never
+  write responses by hand.
 
 ## Do not
 
@@ -64,45 +66,16 @@ risks, deferred work) are filed as beads in this repo.
 - Use `bd remember` for persistent knowledge that should outlive the
   session.
 
-## Session start: arming the inbox watcher via the in-session Monitor
+## Session start
 
-This shop is reactive on session start: when a new message lands in
-`inbox/`, the router must learn about it without polling. The activation
-mechanism is the in-session **Monitor** tool — not a `SessionStart` hook
-in `.claude/settings.json`. (Earlier iterations of this template tried
-the hook path; Claude Code awaits `SessionStart` hooks synchronously, so
-a foreground `inotifywait -m` pipeline never returns and session startup
-hangs. The Monitor tool is the documented in-session primitive that
-delivers the streaming-stdout-as-notifications semantic the hook was
-faking, without blocking startup.)
+At the start of every working session the router must run these two
+orientation commands and then arm the inbox watcher:
 
-**At session start, the router must arm the in-session Monitor tool on
-the following pipeline (watch target: `inbox/`):**
-
-```
-stdbuf -oL inotifywait -m -e create,moved_to inbox/
-```
-
-Before arming the Monitor, the router must verify that both
-`inotifywait` and `stdbuf` are on PATH (for example, via
-`command -v inotifywait` and `command -v stdbuf`). If either executable
-is missing, the router must refuse to arm the Monitor and surface a
-visible diagnostic naming the missing prerequisite — do not silently
-fall back to a no-watcher state, and do not arm the watcher via a
-`SessionStart` hook in `.claude/settings.json` as a fallback. A
-no-watcher session loses the shop's reactivity invariant; the operator
-needs to see the diagnostic and install the missing package.
-
-### Host prerequisites
-
-The Monitor activation pipeline named above depends on two host-level
-packages being present on PATH:
-
-- **inotify-tools** — provides the `inotifywait` binary used to watch
-  the inbound mailbox surface for new messages.
-- **coreutils** — provides `stdbuf`, used to set line-buffered output
-  on the `inotifywait` invocation so events stream as they happen
-  rather than batching into a pipe buffer.
-
-Install both packages through your distro's package manager (e.g.
-`apt-get install inotify-tools coreutils` on Debian/Ubuntu).
+1. **`shop-msg prime --bc-root .`** — orientation: DSN reachability,
+   pending inbox count, CLI reminder. Run at session start.
+2. **`bd prime`** — beads workflow context. Run at session start.
+3. **Arm the Monitor** on `shop-msg watch --bc-root .` — this is the
+   postgres LISTEN/NOTIFY watcher that outputs one line per new inbox
+   message, usable directly as a Claude Code Monitor pipeline.
+   `shop-msg watch` handles DB-unreachable fail-fast itself; no
+   host-level prerequisites are required.
