@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "shopsystem-devcontainer"
+version = "0.1.0"
+description = "Devcontainer base image BC for the shopsystem product."
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "David Stenglein"}]
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-bdd>=7",
+    "psycopg[binary]>=3.0",
+    "pyyaml",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
