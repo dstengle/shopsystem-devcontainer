@@ -32,5 +32,5 @@ jobs:
           file: .devcontainer/Dockerfile
           push: true
           tags: |
-            ghcr.io/dstengle/shopsystem-devcontainer:latest
-            ghcr.io/dstengle/shopsystem-devcontainer:sha-${{ github.sha }}
+            ghcr.io/dstengle/shopsystem-bc-base:latest
+            ghcr.io/dstengle/shopsystem-bc-base:sha-${{ github.sha }}

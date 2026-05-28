@@ -2,6 +2,21 @@ FROM mcr.microsoft.com/devcontainers/python:3-3.14-trixie
 # Install
 RUN apt-get update && apt-get install -y git vim curl tmux wget golang inotify-tools
 RUN pip install uv
+
+# Install gh (GitHub CLI) from the official cli.github.com apt repo.
+# No version pin; latest is acceptable.
+RUN set -e && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates gnupg && \
+    install -dm 0755 /etc/apt/keyrings && \
+    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+        | tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null && \
+    chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg && \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+        > /etc/apt/sources.list.d/github-cli.list && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends gh && \
+    gh --version
 #
 # Specstory for capturing agent chat logs
 #
@@ -51,7 +66,7 @@ RUN set -e && \
     bd --version
 
 # Verify all CLI tools are on PATH
-RUN which shop-msg && which shop-templates && which shop-test-harness && which bd
+RUN which shop-msg && which shop-templates && which shop-test-harness && which bd && which gh
 
 WORKDIR /workspace
 CMD ["/bin/bash"]

@@ -27,17 +27,17 @@ Feature: GitHub Actions CI Workflow: Build and Publish Devcontainer
     Then a workflow step exists whose configuration sets file or context to .devcontainer/Dockerfile
     And that step uses an action or run command that performs a docker build
 
-  @scenario_hash:bf1f7c49d32415f4 @bc:shopsystem-devcontainer
+  @scenario_hash:ef954fdd701ff931 @bc:shopsystem-devcontainer
   Scenario: Workflow push step targets ghcr.io with the correct image name
     Given the shopsystem-devcontainer BC repository
     When the content of .github/workflows/publish-devcontainer.yml is read
     Then a workflow step exists whose configuration targets the registry ghcr.io
-    And that step references the image name ghcr.io/dstengle/shopsystem-devcontainer
+    And that step references the image name ghcr.io/dstengle/shopsystem-bc-base
     And that step uses an action or run command that performs a docker push or equivalent registry push
 
-  @scenario_hash:a8ecd41d79fe7ac5 @bc:shopsystem-devcontainer
+  @scenario_hash:7a89fb376e611e00 @bc:shopsystem-devcontainer
   Scenario: Workflow publishes both a latest tag and a git-SHA tag
     Given the shopsystem-devcontainer BC repository
     When the content of .github/workflows/publish-devcontainer.yml is read
-    Then the tags configuration for the build-push step includes ghcr.io/dstengle/shopsystem-devcontainer:latest
-    And the tags configuration includes a git SHA-derived tag of the form ghcr.io/dstengle/shopsystem-devcontainer:sha-<short-sha>
+    Then the tags configuration for the build-push step includes ghcr.io/dstengle/shopsystem-bc-base:latest
+    And the tags configuration includes a git SHA-derived tag of the form ghcr.io/dstengle/shopsystem-bc-base:sha-<short-sha>

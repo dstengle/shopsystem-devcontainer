@@ -955,10 +955,10 @@ def workflow_step_targets_ghcr(context: dict) -> None:
     )
 
 
-@then("that step references the image name ghcr.io/dstengle/shopsystem-devcontainer")
+@then("that step references the image name ghcr.io/dstengle/shopsystem-bc-base")
 def workflow_step_references_image_name(context: dict) -> None:
     raw = context["workflow_raw"]
-    image_name = "ghcr.io/dstengle/shopsystem-devcontainer"
+    image_name = "ghcr.io/dstengle/shopsystem-bc-base"
     assert image_name in raw, (
         f"Expected workflow to reference image name {image_name!r}.\n"
         f"Workflow content:\n{raw}"
@@ -994,12 +994,12 @@ def workflow_step_performs_docker_push(context: dict) -> None:
 
 @then(
     "the tags configuration for the build-push step includes "
-    "ghcr.io/dstengle/shopsystem-devcontainer:latest"
+    "ghcr.io/dstengle/shopsystem-bc-base:latest"
 )
 def workflow_tags_include_latest(context: dict) -> None:
     wf = context["workflow_parsed"]
     raw = context["workflow_raw"]
-    image = "ghcr.io/dstengle/shopsystem-devcontainer"
+    image = "ghcr.io/dstengle/shopsystem-bc-base"
     # The tags field may be a multiline string or a list in the parsed YAML.
     steps = _get_all_steps(wf)
     found = False
@@ -1019,11 +1019,11 @@ def workflow_tags_include_latest(context: dict) -> None:
 
 @then(
     "the tags configuration includes a git SHA-derived tag of the form "
-    "ghcr.io/dstengle/shopsystem-devcontainer:sha-<short-sha>"
+    "ghcr.io/dstengle/shopsystem-bc-base:sha-<short-sha>"
 )
 def workflow_tags_include_sha_tag(context: dict) -> None:
     raw = context["workflow_raw"]
-    image = "ghcr.io/dstengle/shopsystem-devcontainer"
+    image = "ghcr.io/dstengle/shopsystem-bc-base"
     # Accept any expression that produces a sha- prefixed tag:
     # e.g. sha-${{ github.sha }}, sha-$(git rev-parse --short HEAD), sha-${GITHUB_SHA::7}, etc.
     # We look for the image prefix followed by :sha- and some non-empty expression.
